@@ -1,0 +1,16 @@
+# ---- Workspace / tooling ----
+.agent/
+skills/
+.vscode/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Frontend build artifacts (safety; also ignored in rephim-frontend/.gitignore) ----
+rephim-frontend/node_modules/
+rephim-frontend/dist/
+rephim-frontend/dist-ssr/
+rephim-frontend/.vite/
+rephim-frontend/*.local
+rephim-frontend/.env*
