@@ -20,6 +20,8 @@ import {
   Loader2,
   AlertCircle,
   Heart,
+  RotateCcw,
+  RotateCw,
 } from "lucide-react";
 import { getMovieDetail } from "../api/ophim";
 import Hls from "hls.js";
@@ -221,13 +223,43 @@ export default function PlayerPage() {
   const showControls = () => {
     setControlsVisible(true);
     clearTimeout(controlsTimeoutRef.current);
-    if (playing) {
+    if (playing && !epListOpen) {
       controlsTimeoutRef.current = setTimeout(
         () => setControlsVisible(false),
         3000,
       );
     }
   };
+
+  // Prevent controls auto-hide when episode list is open
+  useEffect(() => {
+    if (epListOpen) {
+      clearTimeout(controlsTimeoutRef.current);
+    } else if (playing) {
+      showControls();
+    }
+  }, [epListOpen, playing]);
+
+  // Sync fullscreen state with document fullscreen element changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFS = !!document.fullscreenElement;
+      setFullscreen(isFS);
+      if (!isFS) {
+        if (screen.orientation && typeof screen.orientation.unlock === "function") {
+          try {
+            screen.orientation.unlock();
+          } catch (e) {
+            console.warn("Screen orientation unlock failed:", e);
+          }
+        }
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   const skipSeconds = (secs) => {
     const video = videoRef.current;
@@ -283,6 +315,28 @@ export default function PlayerPage() {
     playing ? video.pause() : video.play();
   };
 
+  const handleVideoContainerClick = (e) => {
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    if (isTouch) {
+      if (controlsVisible) {
+        setControlsVisible(false);
+        clearTimeout(controlsTimeoutRef.current);
+      } else {
+        showControls();
+      }
+    } else {
+      togglePlay();
+      showControls();
+    }
+  };
+
+  const handleContainerTouchStart = (e) => {
+    if (e.target.closest(".center-click-area")) {
+      return;
+    }
+    showControls();
+  };
+
   const seek = (e) => {
     const video = videoRef.current;
     if (!video || !duration) return;
@@ -308,11 +362,26 @@ export default function PlayerPage() {
   const toggleFullscreen = () => {
     const el = containerRef.current;
     if (!document.fullscreenElement) {
-      el?.requestFullscreen();
-      setFullscreen(true);
+      el?.requestFullscreen()
+        .then(() => {
+          setFullscreen(true);
+          if (screen.orientation && typeof screen.orientation.lock === "function") {
+            screen.orientation.lock("landscape").catch((err) => {
+              console.warn("Screen orientation lock failed:", err);
+            });
+          }
+        })
+        .catch((err) => console.error(err));
     } else {
       document.exitFullscreen();
       setFullscreen(false);
+      if (screen.orientation && typeof screen.orientation.unlock === "function") {
+        try {
+          screen.orientation.unlock();
+        } catch (e) {
+          console.warn("Screen orientation unlock failed:", e);
+        }
+      }
     }
   };
 
@@ -324,18 +393,22 @@ export default function PlayerPage() {
       ref={containerRef}
       className="w-full bg-black min-h-screen flex flex-col"
       onMouseMove={showControls}
-      onTouchStart={showControls}
+      onTouchStart={handleContainerTouchStart}
     >
       {/* Video container */}
       <div
         className="relative flex-1 flex items-center justify-center bg-black"
-        style={{ minHeight: "56.25vw", maxHeight: "85vh" }}
+        style={
+          fullscreen
+            ? { height: "100vh", maxHeight: "100vh", minHeight: "100vh" }
+            : { minHeight: "56.25vw", maxHeight: "85vh" }
+        }
       >
         <video ref={videoRef} className="w-full h-full object-contain" />
 
         {/* Buffering overlay */}
         {buffering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
             <Loader2 size={48} className="text-[#E50914] animate-spin" />
           </div>
         )}
@@ -352,16 +425,68 @@ export default function PlayerPage() {
           </div>
         )}
 
-        {/* Center play/pause click area */}
+        {/* Center click area */}
         <div
-          className="absolute inset-0 cursor-pointer"
-          onClick={togglePlay}
+          className="absolute inset-0 cursor-pointer z-10 center-click-area"
+          onClick={handleVideoContainerClick}
           onDoubleClick={toggleFullscreen}
         />
 
+        {/* Center controls overlay */}
+        <div
+          className={`absolute inset-0 flex items-center justify-center gap-8 bg-black/40 transition-opacity duration-300 z-20 pointer-events-none ${
+            controlsVisible ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          {/* Skip Back Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              skipSeconds(-10);
+              showControls();
+            }}
+            className="w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
+            title="Lùi 10s"
+          >
+            <RotateCcw size={20} />
+          </button>
+
+          {/* Center Play/Pause Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlay();
+              showControls();
+            }}
+            className="w-16 h-16 rounded-full bg-white text-black hover:bg-white/95 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-lg"
+            title={playing ? "Tạm dừng" : "Phát"}
+          >
+            {playing ? (
+              <Pause size={28} fill="black" />
+            ) : (
+              <Play size={28} fill="black" className="ml-1" />
+            )}
+          </button>
+
+          {/* Skip Forward Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              skipSeconds(10);
+              showControls();
+            }}
+            className="w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
+            title="Tới 10s"
+          >
+            <RotateCw size={20} />
+          </button>
+        </div>
+
         {/* Top bar */}
         <div
-          className={`absolute top-0 left-0 right-0 p-4 flex items-center gap-3 bg-linear-to-b from-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+          className={`absolute top-0 left-0 right-0 p-4 flex items-center gap-3 bg-linear-to-b from-black/70 to-transparent transition-opacity duration-300 z-30 ${
+            controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
         >
           <Link
             to={`/phim/${slug}`}
@@ -397,19 +522,23 @@ export default function PlayerPage() {
 
         {/* Bottom controls */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-4 pb-4 pt-8 transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+          className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-4 pb-4 pt-8 transition-opacity duration-300 z-30 ${
+            controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
         >
-          {/* Progress bar */}
+          {/* Progress bar wrapper with larger touch area */}
           <div
-            className="relative h-1 bg-white/20 rounded-full mb-3 cursor-pointer group"
+            className="relative py-3 cursor-pointer group"
             onClick={seek}
           >
+            <div className="h-1 bg-white/20 rounded-full w-full">
+              <div
+                className="h-full bg-[#E50914] rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
             <div
-              className="h-full bg-[#E50914] rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-            <div
-              className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-[#E50914] rounded-full scale-0 group-hover:scale-100 transition-transform"
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#E50914] rounded-full transition-transform scale-100 md:scale-0 md:group-hover:scale-100"
               style={{
                 left: `${progress}%`,
                 transform: "translate(-50%, -50%)",
@@ -504,7 +633,7 @@ export default function PlayerPage() {
 
         {/* Episode list drawer */}
         {epListOpen && (
-          <div className="absolute top-0 right-0 bottom-0 w-72 bg-[#131313]/95 backdrop-blur-xl flex flex-col z-30">
+          <div className="absolute top-0 right-0 bottom-0 w-72 bg-[#131313]/95 backdrop-blur-xl flex flex-col z-40">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
               <h3 className="font-bold text-white text-sm">Danh sách tập</h3>
               <button
@@ -549,20 +678,22 @@ export default function PlayerPage() {
       </div>
 
       {/* Below player info */}
-      <div className="container mx-auto px-4 py-6">
-        <h1 className="text-xl font-bold text-white mb-1">
-          {movie.name} — {currentEp?.name}
-        </h1>
-        <p className="text-sm text-gray-500 mb-4">{movie.origin_name}</p>
-        <div className="flex gap-2">
-          <Link
-            to={`/phim/${slug}`}
-            className="glass hover:bg-white/10 text-sm font-medium px-4 py-2 rounded-full transition-all text-gray-300"
-          >
-            ← Thông tin phim
-          </Link>
+      {!fullscreen && (
+        <div className="container mx-auto px-4 py-6">
+          <h1 className="text-xl font-bold text-white mb-1">
+            {movie.name} — {currentEp?.name}
+          </h1>
+          <p className="text-sm text-gray-500 mb-4">{movie.origin_name}</p>
+          <div className="flex gap-2">
+            <Link
+              to={`/phim/${slug}`}
+              className="glass hover:bg-white/10 text-sm font-medium px-4 py-2 rounded-full transition-all text-gray-300"
+            >
+              ← Thông tin phim
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
