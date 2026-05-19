@@ -48,6 +48,7 @@ export default function PlayerPage() {
   const hlsRef = useRef(null);
   const containerRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
+  const progressBarRef = useRef(null);
 
   const [movieData, setMovieData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +68,10 @@ export default function PlayerPage() {
   const [buffering, setBuffering] = useState(false);
   const [videoError, setVideoError] = useState(null);
   const [isFav, setIsFav] = useState(false);
+
+  // Dragging states
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragProgress, setDragProgress] = useState(0);
 
   // Load movie data
   useEffect(() => {
@@ -337,13 +342,64 @@ export default function PlayerPage() {
     showControls();
   };
 
-  const seek = (e) => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    video.currentTime = ratio * duration;
+  const getProgressFromEvent = (e) => {
+    if (!progressBarRef.current || !duration) return 0;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clientX = e.touches && e.touches.length > 0
+      ? e.touches[0].clientX
+      : (e.changedTouches && e.changedTouches.length > 0
+          ? e.changedTouches[0].clientX
+          : e.clientX);
+    const ratio = (clientX - rect.left) / rect.width;
+    return Math.min(Math.max(0, ratio * 100), 100);
   };
+
+  const handleSeekStart = (e) => {
+    setIsDragging(true);
+    const p = getProgressFromEvent(e);
+    setDragProgress(p);
+    const video = videoRef.current;
+    if (video && duration) {
+      video.currentTime = (p / 100) * duration;
+    }
+    showControls();
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMove = (e) => {
+      const p = getProgressFromEvent(e);
+      setDragProgress(p);
+      const video = videoRef.current;
+      if (video && duration) {
+        video.currentTime = (p / 100) * duration;
+      }
+      showControls();
+    };
+
+    const handleEnd = (e) => {
+      const p = getProgressFromEvent(e);
+      const video = videoRef.current;
+      if (video && duration) {
+        video.currentTime = (p / 100) * duration;
+      }
+      setIsDragging(false);
+      showControls();
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleEnd);
+    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchend", handleEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleEnd);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleEnd);
+    };
+  }, [isDragging, duration]);
 
   const changeVolume = (e) => {
     const v = parseFloat(e.target.value);
@@ -387,6 +443,7 @@ export default function PlayerPage() {
 
   const movie = movieData?.data?.item || movieData?.movie || {};
   const progress = duration ? (currentTime / duration) * 100 : 0;
+  const currentProgress = isDragging ? dragProgress : progress;
 
   return (
     <div
@@ -528,19 +585,21 @@ export default function PlayerPage() {
         >
           {/* Progress bar wrapper with larger touch area */}
           <div
-            className="relative py-3 cursor-pointer group"
-            onClick={seek}
+            ref={progressBarRef}
+            className="relative py-3 cursor-pointer group select-none"
+            onMouseDown={handleSeekStart}
+            onTouchStart={handleSeekStart}
           >
-            <div className="h-1 bg-white/20 rounded-full w-full">
+            <div className="h-2 bg-white/20 rounded-full w-full overflow-hidden">
               <div
-                className="h-full bg-[#E50914] rounded-full transition-all"
-                style={{ width: `${progress}%` }}
+                className="h-full bg-[#E50914] rounded-full transition-none"
+                style={{ width: `${currentProgress}%` }}
               />
             </div>
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#E50914] rounded-full transition-transform scale-100 md:scale-0 md:group-hover:scale-100"
+              className="absolute top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-[#E50914] rounded-full transition-transform scale-100 md:scale-0 md:group-hover:scale-100"
               style={{
-                left: `${progress}%`,
+                left: `${currentProgress}%`,
                 transform: "translate(-50%, -50%)",
               }}
             />
