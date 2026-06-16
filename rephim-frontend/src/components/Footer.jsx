@@ -98,19 +98,6 @@ export default function Footer() {
               <Mail size={14} />
               support@rephim.cc
             </a>
-            <div className="mt-4 p-3 rounded-xl bg-[#E50914]/10 border border-[#E50914]/20">
-              <p className="text-xs text-gray-400">
-                Dữ liệu phim được cung cấp bởi
-              </p>
-              <a
-                href="https://ophim17.cc"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-semibold text-[#E50914]"
-              >
-                OPhim API
-              </a>
-            </div>
           </div>
         </div>
 

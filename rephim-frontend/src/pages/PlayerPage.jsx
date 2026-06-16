@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   useParams,
   useNavigate,
@@ -22,6 +22,7 @@ import {
   Heart,
   RotateCcw,
   RotateCw,
+  X,
 } from "lucide-react";
 import { getMovieDetail } from "../api/ophim";
 import Hls from "hls.js";
@@ -30,6 +31,8 @@ import {
   toggleFavorite,
   isFavorite as checkIsFavorite,
 } from "../utils/storage";
+
+const NEXT_EPISODE_SHOW_REMAINING = 30;
 
 function formatTime(secs) {
   if (isNaN(secs)) return "0:00";
@@ -51,8 +54,6 @@ export default function PlayerPage() {
   const progressBarRef = useRef(null);
 
   const [movieData, setMovieData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [currentEp, setCurrentEp] = useState(null);
   const [activeServer, setActiveServer] = useState(serverIdx);
   const [episodes, setEpisodes] = useState([]);
   const [epListOpen, setEpListOpen] = useState(false);
@@ -68,6 +69,7 @@ export default function PlayerPage() {
   const [buffering, setBuffering] = useState(false);
   const [videoError, setVideoError] = useState(null);
   const [isFav, setIsFav] = useState(false);
+  const [nextEpisodeDismissedFor, setNextEpisodeDismissedFor] = useState(null);
 
   // Dragging states
   const [isDragging, setIsDragging] = useState(false);
@@ -75,8 +77,11 @@ export default function PlayerPage() {
 
   // Load movie data
   useEffect(() => {
+    let cancelled = false;
+
     getMovieDetail(slug)
       .then((d) => {
+        if (cancelled) return;
         setMovieData(d);
         const item = d.data?.item || d.movie || {};
         setIsFav(checkIsFavorite(slug));
@@ -84,42 +89,43 @@ export default function PlayerPage() {
         setEpisodes(eps);
 
         const serverIdxSafe = Math.min(
-          activeServer,
+          serverIdx,
           Math.max(0, eps.length - 1),
         );
-        const serverEps =
-          eps[serverIdxSafe]?.server_data || eps[0]?.server_data || [];
-        const found =
-          serverEps.find(
-            (e) => e.slug === tap || e.slug === `tap-${tap}` || e.name === tap,
-          ) || serverEps[0];
-
-        setCurrentEp(found);
         setActiveServer(serverIdxSafe);
       })
-      .catch((e) => setVideoError(e.message))
-      .finally(() => setLoading(false));
-  }, [slug]);
+      .catch((e) => {
+        if (!cancelled) setVideoError(e.message);
+      });
 
-  // Update episode when tap changes
-  useEffect(() => {
-    if (!episodes.length) return;
-    const serverEps = episodes[activeServer]?.server_data || [];
-    const found =
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, serverIdx]);
+
+  const serverEps = useMemo(
+    () => episodes[activeServer]?.server_data || [],
+    [episodes, activeServer],
+  );
+  const currentEp = useMemo(() => {
+    if (!serverEps.length) return null;
+    return (
       serverEps.find(
         (e) => e.slug === tap || e.slug === `tap-${tap}` || e.name === tap,
-      ) || serverEps[0];
-    setCurrentEp(found);
-  }, [tap, activeServer, episodes]);
+      ) || serverEps[0]
+    );
+  }, [serverEps, tap]);
 
   // HLS setup
   useEffect(() => {
     if (!currentEp?.link_m3u8 || !videoRef.current) return;
     const video = videoRef.current;
 
-    setVideoError(null);
-    setBuffering(true);
-    setPlaying(false);
+    queueMicrotask(() => {
+      setVideoError(null);
+      setBuffering(true);
+      setPlaying(false);
+    });
 
     const setupHLS = () => {
       try {
@@ -225,7 +231,7 @@ export default function PlayerPage() {
   }, [movieData, currentEp]);
 
   // Controls auto-hide
-  const showControls = () => {
+  const showControls = useCallback(() => {
     setControlsVisible(true);
     clearTimeout(controlsTimeoutRef.current);
     if (playing && !epListOpen) {
@@ -234,16 +240,23 @@ export default function PlayerPage() {
         3000,
       );
     }
-  };
+  }, [playing, epListOpen]);
 
   // Prevent controls auto-hide when episode list is open
   useEffect(() => {
     if (epListOpen) {
       clearTimeout(controlsTimeoutRef.current);
-    } else if (playing) {
-      showControls();
+      return;
     }
-  }, [epListOpen, playing]);
+
+    if (!playing) return;
+
+    const timeoutId = setTimeout(() => {
+      showControls();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [epListOpen, playing, showControls]);
 
   // Sync fullscreen state with document fullscreen element changes
   useEffect(() => {
@@ -275,20 +288,25 @@ export default function PlayerPage() {
       );
   };
 
-  const serverEps = episodes[activeServer]?.server_data || [];
   const currentEpIdx = serverEps.findIndex((e) => e.slug === currentEp?.slug);
+  const nextEp = currentEpIdx >= 0 ? serverEps[currentEpIdx + 1] : null;
+  const hasNextEp = Boolean(nextEp);
+  const shouldShowNextEpisode =
+    hasNextEp &&
+    duration > NEXT_EPISODE_SHOW_REMAINING &&
+    duration - currentTime <= NEXT_EPISODE_SHOW_REMAINING &&
+    nextEpisodeDismissedFor !== currentEp?.slug;
+
   const goNextEp = () => {
     if (currentEpIdx < serverEps.length - 1) {
       const next = serverEps[currentEpIdx + 1];
       navigate(`/xem/${slug}/${next.slug}?server=${activeServer}`);
-      setCurrentEp(next);
     }
   };
   const goPrevEp = () => {
     if (currentEpIdx > 0) {
       const prev = serverEps[currentEpIdx - 1];
       navigate(`/xem/${slug}/${prev.slug}?server=${activeServer}`);
-      setCurrentEp(prev);
     }
   };
 
@@ -297,22 +315,16 @@ export default function PlayerPage() {
     const video = videoRef.current;
     if (!video) return;
 
-    const serverEpsLocal = episodes[activeServer]?.server_data || [];
-    const currentEpIdxLocal = serverEpsLocal.findIndex(
-      (e) => e.slug === currentEp?.slug,
-    );
-
     const handleEnded = () => {
-      if (currentEpIdxLocal < serverEpsLocal.length - 1) {
-        const next = serverEpsLocal[currentEpIdxLocal + 1];
+      if (currentEpIdx < serverEps.length - 1) {
+        const next = serverEps[currentEpIdx + 1];
         navigate(`/xem/${slug}/${next.slug}?server=${activeServer}`);
-        setCurrentEp(next);
       }
     };
 
     video.addEventListener("ended", handleEnded);
     return () => video.removeEventListener("ended", handleEnded);
-  }, [currentEp, activeServer, episodes, slug, navigate, setCurrentEp]);
+  }, [currentEpIdx, serverEps, slug, activeServer, navigate]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -320,7 +332,7 @@ export default function PlayerPage() {
     playing ? video.pause() : video.play();
   };
 
-  const handleVideoContainerClick = (e) => {
+  const handleVideoContainerClick = () => {
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     if (isTouch) {
       if (controlsVisible) {
@@ -342,7 +354,7 @@ export default function PlayerPage() {
     showControls();
   };
 
-  const getProgressFromEvent = (e) => {
+  const getProgressFromEvent = useCallback((e) => {
     if (!progressBarRef.current || !duration) return 0;
     const rect = progressBarRef.current.getBoundingClientRect();
     const clientX = e.touches && e.touches.length > 0
@@ -352,7 +364,7 @@ export default function PlayerPage() {
           : e.clientX);
     const ratio = (clientX - rect.left) / rect.width;
     return Math.min(Math.max(0, ratio * 100), 100);
-  };
+  }, [duration]);
 
   const handleSeekStart = (e) => {
     setIsDragging(true);
@@ -399,7 +411,7 @@ export default function PlayerPage() {
       window.removeEventListener("touchmove", handleMove);
       window.removeEventListener("touchend", handleEnd);
     };
-  }, [isDragging, duration]);
+  }, [isDragging, duration, getProgressFromEvent, showControls]);
 
   const changeVolume = (e) => {
     const v = parseFloat(e.target.value);
@@ -488,6 +500,40 @@ export default function PlayerPage() {
           onClick={handleVideoContainerClick}
           onDoubleClick={toggleFullscreen}
         />
+
+        {shouldShowNextEpisode && (
+          <div className="absolute right-4 top-20 z-40 sm:top-24">
+            <div className="overflow-hidden rounded-2xl bg-black/75 text-white shadow-xl shadow-black/50 backdrop-blur-md ring-1 ring-white/10">
+              <div className="flex items-start gap-3 p-3">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    goNextEp();
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-[#E50914] px-3 py-2 text-sm font-semibold transition-colors hover:bg-red-700"
+                >
+                  <SkipForward size={16} />
+                  Tập tiếp theo
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNextEpisodeDismissedFor(currentEp?.slug || null);
+                  }}
+                  className="rounded-full p-1 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                  aria-label="Ẩn chuyển tập tiếp theo"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              {nextEp?.name && (
+                <p className="max-w-52 px-3 pb-3 text-xs text-gray-300 line-clamp-1">
+                  {nextEp.name}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Center controls overlay */}
         <div
@@ -723,7 +769,6 @@ export default function PlayerPage() {
                   key={i}
                   onClick={() => {
                     navigate(`/xem/${slug}/${ep.slug}?server=${activeServer}`);
-                    setCurrentEp(ep);
                     setEpListOpen(false);
                   }}
                   className={`py-2 rounded-lg text-xs font-semibold transition-all ${currentEp?.slug === ep.slug ? "bg-[#E50914] text-white" : "glass glass-hover text-gray-400 hover:text-white"}`}

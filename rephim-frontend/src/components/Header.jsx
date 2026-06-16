@@ -82,7 +82,7 @@ export default function Header() {
           : "bg-linear-to-b from-black/80 to-transparent backdrop-blur-sm"
       }`}
     >
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
+      <div className="relative container mx-auto px-4 h-16 flex items-center justify-between gap-4">
         {/* Logo */}
         <Link
           to="/"
@@ -163,84 +163,14 @@ export default function Header() {
         </nav>
 
         {/* Right side */}
-        <div className="flex items-center gap-2">
-          {/* Search bar */}
-          <div className="relative">
-            {searchOpen ? (
-              <form onSubmit={handleSearchSubmit} className="flex items-center">
-                <div className="flex items-center glass-strong rounded-full pl-4 pr-2 py-1.5">
-                  <input
-                    ref={searchRef}
-                    autoFocus
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Tìm kiếm phim..."
-                    className="bg-transparent outline-none text-sm w-48 text-white placeholder-gray-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={closeSearch}
-                    className="ml-2 p-1 hover:text-[#E50914] transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                {/* Search results dropdown */}
-                {(searchResults.length > 0 || searching) && (
-                  <div className="absolute top-full right-0 mt-2 w-80 glass-strong rounded-xl overflow-hidden shadow-xl shadow-black/50 z-50">
-                    {searching && (
-                      <div className="px-4 py-3 text-sm text-gray-400">
-                        Đang tìm kiếm...
-                      </div>
-                    )}
-                    {searchResults.map((m) => (
-                      <Link
-                        key={m._id}
-                        to={`/phim/${m.slug}`}
-                        onClick={closeSearch}
-                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/10 transition-colors"
-                      >
-                        <img
-                          src={buildImageUrl(m.thumb_url)}
-                          alt={m.name}
-                          className="w-10 h-14 object-cover rounded shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-white line-clamp-1">
-                            {m.name}
-                          </p>
-                          <p className="text-xs text-gray-400 line-clamp-1">
-                            {m.origin_name}
-                          </p>
-                          <p className="text-xs text-[#E50914]">
-                            {m.year} • {m.episode_current}
-                          </p>
-                        </div>
-                      </Link>
-                    ))}
-                    {searchResults.length > 0 && (
-                      <button
-                        onClick={() => {
-                          navigate(`/tim-kiem?q=${encodeURIComponent(search)}`);
-                          closeSearch();
-                        }}
-                        className="w-full px-4 py-2.5 text-sm text-[#E50914] hover:bg-white/5 transition-colors text-center font-medium border-t border-white/5"
-                      >
-                        Xem tất cả kết quả →
-                      </button>
-                    )}
-                  </div>
-                )}
-              </form>
-            ) : (
-              <button
-                onClick={() => setSearchOpen(true)}
-                className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white"
-              >
-                <Search size={20} />
-              </button>
-            )}
-          </div>
+        <div className={`flex items-center gap-2 ${searchOpen ? "opacity-0 pointer-events-none" : ""}`}>
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white"
+            aria-label="Mở tìm kiếm"
+          >
+            <Search size={20} />
+          </button>
 
           {/* User Links */}
           <div className="hidden lg:flex items-center gap-2 mr-2 border-r border-white/10 pr-4">
@@ -266,7 +196,7 @@ export default function Header() {
 
           <Link
             to="/dang-nhap"
-            className="hidden md:flex items-center gap-2 bg-[#E50914] hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-full transition-all duration-200 hover:shadow-lg hover:shadow-red-900/50"
+            className="hidden lg:flex items-center gap-2 bg-[#E50914] hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-full transition-all duration-200 hover:shadow-lg hover:shadow-red-900/50"
           >
             <User size={16} /> Đăng nhập
           </Link>
@@ -280,6 +210,80 @@ export default function Header() {
           </button>
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="absolute inset-x-0 top-0 z-60 border-b border-white/10 bg-[#0e0e0e]/95 px-4 backdrop-blur-xl">
+          <div className="container mx-auto flex h-16 items-center gap-3">
+            <form onSubmit={handleSearchSubmit} className="relative flex-1">
+              <div className="flex items-center rounded-full glass-strong px-3 py-2 sm:px-4">
+                <Search size={18} className="shrink-0 text-gray-400" />
+                <input
+                  ref={searchRef}
+                  autoFocus
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Tìm kiếm phim..."
+                  className="min-w-0 flex-1 bg-transparent px-3 text-sm text-white outline-none placeholder-gray-500"
+                />
+                <button
+                  type="button"
+                  onClick={closeSearch}
+                  className="shrink-0 rounded-full p-1 text-gray-300 transition-colors hover:text-[#E50914]"
+                  aria-label="Đóng tìm kiếm"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {(searchResults.length > 0 || searching) && (
+                <div className="absolute top-full right-0 mt-2 w-full max-w-full overflow-hidden rounded-xl glass-strong shadow-xl shadow-black/50">
+                  {searching && (
+                    <div className="px-4 py-3 text-sm text-gray-400">
+                      Đang tìm kiếm...
+                    </div>
+                  )}
+                  {searchResults.map((m) => (
+                    <Link
+                      key={m._id}
+                      to={`/phim/${m.slug}`}
+                      onClick={closeSearch}
+                      className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-white/10"
+                    >
+                      <img
+                        src={buildImageUrl(m.thumb_url)}
+                        alt={m.name}
+                        className="h-14 w-10 shrink-0 rounded object-cover"
+                      />
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-white">
+                          {m.name}
+                        </p>
+                        <p className="line-clamp-1 text-xs text-gray-400">
+                          {m.origin_name}
+                        </p>
+                        <p className="text-xs text-[#E50914]">
+                          {m.year} • {m.episode_current}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                  {searchResults.length > 0 && (
+                    <button
+                      onClick={() => {
+                        navigate(`/tim-kiem?q=${encodeURIComponent(search)}`);
+                        closeSearch();
+                      }}
+                      className="w-full border-t border-white/5 px-4 py-2.5 text-center text-sm font-medium text-[#E50914] transition-colors hover:bg-white/5"
+                    >
+                      Xem tất cả kết quả →
+                    </button>
+                  )}
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Mobile menu drawer */}
       {menuOpen && (
