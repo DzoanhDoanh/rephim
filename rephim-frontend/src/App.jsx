@@ -37,13 +37,13 @@ function Layout({ children, noFooter = false }) {
   );
 }
 
-// Player layout (no header/footer)
+// Player layout
 function PlayerLayout() {
   console.log("Player layout rendering...");
   return (
-    <div className="min-h-screen bg-black">
+    <Layout>
       <PlayerPage />
-    </div>
+    </Layout>
   );
 }
 
