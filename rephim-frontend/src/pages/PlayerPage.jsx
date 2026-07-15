@@ -260,6 +260,17 @@ export default function PlayerPage() {
 
   // Sync fullscreen state with document fullscreen element changes
   useEffect(() => {
+    const lockLandscapeOrientation = async () => {
+      const orientation = screen.orientation;
+      if (!orientation || typeof orientation.lock !== "function") return;
+
+      try {
+        await orientation.lock("landscape");
+      } catch (e) {
+        console.warn("Screen orientation lock failed:", e);
+      }
+    };
+
     const handleFullscreenChange = () => {
       const isFS = !!(
         document.fullscreenElement ||
@@ -268,7 +279,9 @@ export default function PlayerPage() {
         document.msFullscreenElement
       );
       setFullscreen(isFS);
-      if (!isFS) {
+      if (isFS) {
+        lockLandscapeOrientation();
+      } else {
         if (screen.orientation && typeof screen.orientation.unlock === "function") {
           try {
             screen.orientation.unlock();
@@ -495,6 +508,7 @@ export default function PlayerPage() {
         for (const target of targets) {
           // Only enter the visual fallback if the browser actually allows fullscreen.
           if (await requestNativeFullscreen(target)) {
+            await lockLandscapeOrientation();
             return;
           }
         }
@@ -608,10 +622,11 @@ export default function PlayerPage() {
                 skipSeconds(-10);
                 showControls();
               }}
-              className="w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
               title="Lùi 10s"
             >
-              <RotateCcw size={20} />
+              <RotateCcw size={16} className="sm:hidden" />
+              <RotateCcw size={20} className="hidden sm:block" />
             </button>
 
             {/* Center Play/Pause Button */}
@@ -621,13 +636,18 @@ export default function PlayerPage() {
                 togglePlay();
                 showControls();
               }}
-              className="w-16 h-16 rounded-full bg-white text-black hover:bg-white/95 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-lg"
+              className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white text-black hover:bg-white/95 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-lg"
               title={playing ? "Tạm dừng" : "Phát"}
             >
               {playing ? (
-                <Pause size={28} fill="black" />
+                <Pause size={20} className="sm:hidden" fill="black" />
               ) : (
-                <Play size={28} fill="black" className="ml-1" />
+                <Play size={20} className="ml-1 sm:hidden" fill="black" />
+              )}
+              {playing ? (
+                <Pause size={28} className="hidden sm:block" fill="black" />
+              ) : (
+                <Play size={28} className="hidden sm:block ml-1" fill="black" />
               )}
             </button>
 
@@ -638,16 +658,17 @@ export default function PlayerPage() {
                 skipSeconds(10);
                 showControls();
               }}
-              className="w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 pointer-events-auto shadow-md"
               title="Tới 10s"
             >
-              <RotateCw size={20} />
+              <RotateCw size={16} className="sm:hidden" />
+              <RotateCw size={20} className="hidden sm:block" />
             </button>
           </div>
 
           {/* Top bar */}
           <div
-            className={`absolute top-0 left-0 right-0 p-4 flex items-center gap-3 bg-linear-to-b from-black/70 to-transparent transition-opacity duration-300 z-30 ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            className={`absolute top-0 left-0 right-0 p-3 sm:p-4 flex items-center gap-2 sm:gap-3 bg-linear-to-b from-black/70 to-transparent transition-opacity duration-300 z-30 ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
               }`}
           >
             <Link
@@ -684,24 +705,24 @@ export default function PlayerPage() {
 
           {/* Bottom controls */}
           <div
-            className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-4 pb-4 pt-8 transition-opacity duration-300 z-30 ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-3 sm:px-4 pb-3 sm:pb-4 pt-6 sm:pt-8 transition-opacity duration-300 z-30 ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
               }`}
           >
             {/* Progress bar wrapper with larger touch area */}
             <div
               ref={progressBarRef}
-              className="relative py-3 cursor-pointer group select-none"
+              className="relative py-2 sm:py-3 cursor-pointer group select-none"
               onMouseDown={handleSeekStart}
               onTouchStart={handleSeekStart}
             >
-              <div className="h-2 bg-white/20 rounded-full w-full overflow-hidden">
+              <div className="h-1.5 sm:h-2 bg-white/20 rounded-full w-full overflow-hidden">
                 <div
                   className="h-full bg-[#E50914] rounded-full transition-none"
                   style={{ width: `${currentProgress}%` }}
                 />
               </div>
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-[#E50914] rounded-full transition-transform scale-100 md:scale-0 md:group-hover:scale-100"
+                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 bg-[#E50914] rounded-full transition-transform scale-100 md:scale-0 md:group-hover:scale-100"
                 style={{
                   left: `${currentProgress}%`,
                   transform: "translate(-50%, -50%)",
@@ -709,20 +730,21 @@ export default function PlayerPage() {
               />
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               {/* Prev ep */}
               <button
                 onClick={goPrevEp}
                 disabled={currentEpIdx <= 0}
                 className="text-white/70 hover:text-white disabled:opacity-30 transition-colors"
               >
-                <SkipBack size={18} />
+                <SkipBack size={16} className="sm:hidden" />
+                <SkipBack size={18} className="hidden sm:block" />
               </button>
 
               {/* Skip back */}
               <button
                 onClick={() => skipSeconds(-10)}
-                className="text-white/70 hover:text-white transition-colors text-xs font-bold"
+                className="text-white/70 hover:text-white transition-colors text-[10px] sm:text-xs font-bold"
               >
                 -10
               </button>
@@ -730,19 +752,24 @@ export default function PlayerPage() {
               {/* Play/Pause */}
               <button
                 onClick={togglePlay}
-                className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shrink-0"
+                className="w-9 h-9 sm:w-10 sm:h-10 bg-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shrink-0"
               >
                 {playing ? (
-                  <Pause size={18} className="text-black" />
+                  <Pause size={15} className="text-black sm:hidden" />
                 ) : (
-                  <Play size={18} className="text-black ml-0.5" />
+                  <Play size={15} className="text-black ml-0.5 sm:hidden" />
+                )}
+                {playing ? (
+                  <Pause size={18} className="hidden sm:block text-black" />
+                ) : (
+                  <Play size={18} className="hidden sm:block text-black ml-0.5" />
                 )}
               </button>
 
               {/* Skip forward */}
               <button
                 onClick={() => skipSeconds(10)}
-                className="text-white/70 hover:text-white transition-colors text-xs font-bold"
+                className="text-white/70 hover:text-white transition-colors text-[10px] sm:text-xs font-bold"
               >
                 +10
               </button>
@@ -753,11 +780,12 @@ export default function PlayerPage() {
                 disabled={currentEpIdx >= serverEps.length - 1}
                 className="text-white/70 hover:text-white disabled:opacity-30 transition-colors"
               >
-                <SkipForward size={18} />
+                <SkipForward size={16} className="sm:hidden" />
+                <SkipForward size={18} className="hidden sm:block" />
               </button>
 
               {/* Time */}
-              <span className="text-white/70 text-xs font-mono">
+              <span className="text-white/70 text-[10px] sm:text-xs font-mono">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
 
@@ -769,9 +797,14 @@ export default function PlayerPage() {
                 className="text-white/70 hover:text-white transition-colors"
               >
                 {muted || volume === 0 ? (
-                  <VolumeX size={18} />
+                  <VolumeX size={16} className="sm:hidden" />
                 ) : (
-                  <Volume2 size={18} />
+                  <Volume2 size={16} className="sm:hidden" />
+                )}
+                {muted || volume === 0 ? (
+                  <VolumeX size={18} className="hidden sm:block" />
+                ) : (
+                  <Volume2 size={18} className="hidden sm:block" />
                 )}
               </button>
               <input
@@ -781,7 +814,7 @@ export default function PlayerPage() {
                 step={0.05}
                 value={muted ? 0 : volume}
                 onChange={changeVolume}
-                className="w-20 accent-[#E50914] cursor-pointer hidden md:block"
+                className="w-16 sm:w-20 accent-[#E50914] cursor-pointer hidden md:block"
               />
 
               {/* Fullscreen */}
@@ -789,7 +822,8 @@ export default function PlayerPage() {
                 onClick={toggleFullscreen}
                 className="text-white/70 hover:text-white transition-colors"
               >
-                {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                {fullscreen ? <Minimize size={16} className="sm:hidden" /> : <Maximize size={16} className="sm:hidden" />}
+                {fullscreen ? <Minimize size={18} className="hidden sm:block" /> : <Maximize size={18} className="hidden sm:block" />}
               </button>
             </div>
           </div>
