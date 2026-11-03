@@ -14,7 +14,6 @@ import {
   Minimize,
   SkipForward,
   SkipBack,
-  Settings,
   List,
   ArrowLeft,
   Loader2,
@@ -34,6 +33,16 @@ import {
 
 const NEXT_EPISODE_SHOW_REMAINING = 30;
 
+async function lockLandscapeOrientation() {
+  const orientation = screen.orientation;
+  if (typeof orientation?.lock !== "function") return;
+  try {
+    await orientation.lock("landscape");
+  } catch (error) {
+    console.warn("Screen orientation lock failed:", error);
+  }
+}
+
 function formatTime(secs) {
   if (isNaN(secs)) return "0:00";
   const m = Math.floor(secs / 60);
@@ -45,7 +54,9 @@ export default function PlayerPage() {
   const { slug, tap } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const serverIdx = parseInt(searchParams.get("server") || "0");
+  const requestedServer = Number(searchParams.get("server") || "0");
+  const serverIdx = Number.isInteger(requestedServer) && requestedServer >= 0
+    ? requestedServer : 0;
 
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
@@ -54,7 +65,8 @@ export default function PlayerPage() {
   const progressBarRef = useRef(null);
 
   const [movieData, setMovieData] = useState(null);
-  const [activeServer, setActiveServer] = useState(serverIdx);
+  const [loadedSlug, setLoadedSlug] = useState(null);
+  const [hlsSelection, setHlsSelection] = useState(null);
   const [episodes, setEpisodes] = useState([]);
   const [epListOpen, setEpListOpen] = useState(false);
 
@@ -83,16 +95,12 @@ export default function PlayerPage() {
       .then((d) => {
         if (cancelled) return;
         setMovieData(d);
+        setLoadedSlug(slug);
         const item = d.data?.item || d.movie || {};
         setIsFav(checkIsFavorite(slug));
         const eps = item.episodes || d.data?.episodes || d.episodes || [];
         setEpisodes(eps);
 
-        const serverIdxSafe = Math.min(
-          serverIdx,
-          Math.max(0, eps.length - 1),
-        );
-        setActiveServer(serverIdxSafe);
       })
       .catch((e) => {
         if (!cancelled) setVideoError(e.message);
@@ -101,11 +109,12 @@ export default function PlayerPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug, serverIdx]);
+  }, [slug]);
 
+  const activeServer = Math.min(serverIdx, Math.max(0, episodes.length - 1));
   const serverEps = useMemo(
-    () => episodes[activeServer]?.server_data || [],
-    [episodes, activeServer],
+    () => loadedSlug === slug ? episodes[activeServer]?.server_data || [] : [],
+    [episodes, activeServer, loadedSlug, slug],
   );
   const currentEp = useMemo(() => {
     if (!serverEps.length) return null;
@@ -116,9 +125,44 @@ export default function PlayerPage() {
     );
   }, [serverEps, tap]);
 
+  const selectionKey = `${slug}:${activeServer}:${currentEp?.slug || ""}`;
+  const useEmbed = Boolean(currentEp?.link_embed) && hlsSelection !== selectionKey;
+
+  const changeServer = (index) => {
+    const targetEpisodes = episodes[index]?.server_data || [];
+    const target = targetEpisodes.find((ep) => ep.slug === currentEp?.slug)
+      || targetEpisodes.find((ep) => ep.name === currentEp?.name)
+      || targetEpisodes[0];
+    if (target) navigate(`/xem/${slug}/${target.slug}?server=${index}`);
+  };
+
+  // Canonicalize missing episodes and invalid server query values.
+  useEffect(() => {
+    if (!currentEp) return;
+    if (tap !== currentEp.slug || searchParams.get("server") !== String(activeServer)) {
+      navigate(`/xem/${slug}/${currentEp.slug}?server=${activeServer}`, { replace: true });
+    }
+  }, [currentEp, tap, slug, activeServer, searchParams, navigate]);
+
+  // The iframe exposes no playback API: record selection, not invented progress.
+  useEffect(() => {
+    const movie = movieData?.data?.item || movieData?.movie;
+    if (useEmbed && movie?.slug === slug && currentEp) {
+      saveHistory(movie, {
+        ...currentEp,
+        server_name: episodes[activeServer]?.server_name,
+      });
+    }
+  }, [useEmbed, movieData, slug, currentEp, episodes, activeServer]);
+
   // HLS setup
   useEffect(() => {
-    if (!currentEp?.link_m3u8 || !videoRef.current) return;
+    setCurrentTime(0);
+    setDuration(0);
+    setPlaying(false);
+    setBuffering(false);
+    setVideoError(null);
+    if (useEmbed || !currentEp?.link_m3u8 || !videoRef.current) return;
     const video = videoRef.current;
 
     queueMicrotask(() => {
@@ -151,7 +195,7 @@ export default function PlayerPage() {
             if (data.fatal) {
               console.error("HLS Fatal Error:", data);
               setVideoError(
-                "Không thể phát video nguồn HLS. Đang thử chuyển sang trình phát dự phòng...",
+                "Không thể phát nguồn HLS. Hãy thử máy chủ khác hoặc chuyển về trình phát nhúng nếu có.",
               );
               setBuffering(false);
             }
@@ -179,7 +223,7 @@ export default function PlayerPage() {
         hlsRef.current = null;
       }
     };
-  }, [currentEp]);
+  }, [currentEp, useEmbed]);
 
   // Video event listeners
   useEffect(() => {
@@ -260,17 +304,6 @@ export default function PlayerPage() {
 
   // Sync fullscreen state with document fullscreen element changes
   useEffect(() => {
-    const lockLandscapeOrientation = async () => {
-      const orientation = screen.orientation;
-      if (!orientation || typeof orientation.lock !== "function") return;
-
-      try {
-        await orientation.lock("landscape");
-      } catch (e) {
-        console.warn("Screen orientation lock failed:", e);
-      }
-    };
-
     const handleFullscreenChange = () => {
       const isFS = !!(
         document.fullscreenElement ||
@@ -548,19 +581,37 @@ export default function PlayerPage() {
       >
         {/* Video container */}
         <div className="relative w-full h-full flex items-center justify-center bg-black">
-          <video ref={videoRef} className="w-full h-full object-contain" />
+          <video
+            ref={videoRef}
+            className="w-full h-full object-contain"
+            onError={() => {
+              if (!useEmbed) {
+                setVideoError("Không thể tải video. Hãy thử nguồn phát hoặc máy chủ khác.");
+                setBuffering(false);
+              }
+            }}
+          />
 
           {/* Buffering overlay */}
-          {buffering && (
+          {!useEmbed && buffering && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
               <Loader2 size={48} className="text-[#E50914] animate-spin" />
             </div>
           )}
 
-          {/* Embed fallback if HLS fails or no m3u8 */}
-          {(!currentEp?.link_m3u8 || videoError) && currentEp?.link_embed && (
+          {videoError && (
+            <div role="alert" className="absolute inset-x-4 top-16 z-40 rounded-xl bg-black/90 p-4 text-sm text-red-300 flex items-start gap-2">
+              <AlertCircle size={20} className="shrink-0" />
+              <span>{videoError}</span>
+            </div>
+          )}
+
+          {/* Embed-first: provider owns playback controls. */}
+          {useEmbed && (
             <div className="absolute inset-0 z-20 bg-black">
               <iframe
+                key={currentEp.link_embed}
+                title={`${movie.name || 'Phim'} - ${currentEp.name || ''}`}
                 src={currentEp.link_embed}
                 className="w-full h-full border-none"
                 allowFullScreen
@@ -612,7 +663,7 @@ export default function PlayerPage() {
 
           {/* Center controls overlay */}
           <div
-            className={`absolute inset-0 flex items-center justify-center gap-8 bg-black/40 transition-opacity duration-300 z-20 pointer-events-none ${controlsVisible ? "opacity-100" : "opacity-0"
+            className={`absolute inset-0 flex items-center justify-center gap-8 bg-black/40 transition-opacity duration-300 z-20 pointer-events-none ${!useEmbed && controlsVisible ? "opacity-100" : "opacity-0 hidden"
               }`}
           >
             {/* Skip Back Button */}
@@ -705,7 +756,7 @@ export default function PlayerPage() {
 
           {/* Bottom controls */}
           <div
-            className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-3 sm:px-4 pb-3 sm:pb-4 pt-6 sm:pt-8 transition-opacity duration-300 z-30 ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 to-transparent px-3 sm:px-4 pb-3 sm:pb-4 pt-6 sm:pt-8 transition-opacity duration-300 z-30 ${useEmbed ? 'hidden' : ''} ${controlsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
               }`}
           >
             {/* Progress bar wrapper with larger touch area */}
@@ -846,7 +897,7 @@ export default function PlayerPage() {
                     <button
                       key={i}
                       onClick={() => {
-                        setActiveServer(i);
+                        changeServer(i);
                       }}
                       className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${i === activeServer ? "bg-[#E50914] text-white" : "glass text-gray-400"}`}
                     >
@@ -873,6 +924,23 @@ export default function PlayerPage() {
           )}
         </div>
       </div>
+
+      {currentEp?.link_embed && currentEp?.link_m3u8 && (
+        <div className="w-full max-w-5xl mx-auto px-4 py-3 text-sm text-gray-300">
+          <p className="mb-2">
+            {useEmbed
+              ? "Nếu trình phát nhúng không hoạt động, bạn có thể tự chuyển sang HLS. Tiến độ trong trình phát nhúng không được theo dõi."
+              : "Đang dùng nguồn HLS dự phòng."}
+          </p>
+          <button
+            type="button"
+            onClick={() => setHlsSelection(useEmbed ? selectionKey : null)}
+            className="glass px-4 py-2 rounded-full hover:bg-white/10"
+          >
+            {useEmbed ? "Chuyển sang HLS dự phòng" : "Quay lại trình phát nhúng"}
+          </button>
+        </div>
+      )}
 
       {/* Below player info */}
       {!fullscreen && (
@@ -908,7 +976,7 @@ export default function PlayerPage() {
                   {episodes.map((server, i) => (
                     <button
                       key={i}
-                      onClick={() => setActiveServer(i)}
+                      onClick={() => changeServer(i)}
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${i === activeServer
                         ? "bg-[#E50914] text-white"
                         : "glass glass-hover text-gray-300"

@@ -2,11 +2,11 @@
 /** @typedef {import('./ophim.types').OphimMovieDetailResponse} OphimMovieDetailResponse */
 /** @typedef {import('./ophim.types').OphimTaxonomyResponse} OphimTaxonomyResponse */
 
-const BASE_URL = 'https://ophim1.com/v1/api';
-const CDN_BASE = 'https://img.ophim.live/uploads/movies/';
+const BASE_URL = 'https://vsmov.com/api';
+const CDN_BASE = 'https://vsmov.com/storage/images/';
 
 export function buildImageUrl(url) {
-  if (!url) return 'https://via.placeholder.com/300x450/131313/E50914?text=No+Image';
+  if (typeof url !== 'string' || !url.trim()) return 'https://via.placeholder.com/300x450/131313/E50914?text=No+Image';
   if (url.startsWith('http')) return url;
   return CDN_BASE + url;
 }
@@ -22,15 +22,46 @@ async function fetcher(path, params = {}) {
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  const payload = await res.json();
+  if (payload.status === false || payload.status === 'error') {
+    throw new Error(payload.msg || payload.message || 'VSMOV API error');
+  }
+
+  // Preserve the response contract consumed by existing pages.
+  if (payload.movie) {
+    return { ...payload, data: { item: { ...payload.movie, episodes: payload.episodes || [] } } };
+  }
+  if (Array.isArray(payload.items)) {
+    const pagination = payload.pagination;
+    return {
+      ...payload,
+      data: {
+        items: payload.items,
+        params: pagination ? {
+          pagination: {
+            ...pagination,
+            totalItems: Number(pagination.totalItems),
+            totalItemsPerPage: Number(pagination.totalItemsPerPage),
+            currentPage: Number(pagination.currentPage),
+          },
+        } : {},
+      },
+    };
+  }
+  return payload;
 }
 
 /** @returns {Promise<OphimHomeResponse>} */
-export const getHome = () => fetcher('/home');
+export const getHome = () => fetcher('/danh-sach/phim-moi-cap-nhat', { page: 1 });
 
 /** Danh sách phim theo slug type */
-export const getMovieList = (slug, page = 1, limit = 24) =>
-  fetcher(`/danh-sach/${slug}`, { page, limit });
+export const getMovieList = (slug, page = 1, limit = 24) => {
+  // VSMOV exposes these groups as genres rather than list endpoints.
+  if (slug === 'hoat-hinh' || slug === 'tv-shows') {
+    return fetcher(`/the-loai/${slug === 'tv-shows' ? 'truyen-hinh-thuc-te' : 'hoat-hinh'}`, { page, limit });
+  }
+  return fetcher(`/danh-sach/${slug === 'phim-moi' ? 'phim-moi-cap-nhat' : encodeURIComponent(slug)}`, { page, limit });
+};
 
 /**
  * Tìm kiếm phim.
@@ -68,11 +99,11 @@ export const getMoviesByCountry = (slug, page = 1, limit = 24) =>
  * API này được giả định cùng shape taxonomy với data.items.
  * @returns {Promise<OphimTaxonomyResponse>}
  */
-export const getYears = () => fetcher('/nam-phat-hanh');
+export const getYears = () => fetcher('/nam');
 
 /** Phim theo năm phát hành */
 export const getMoviesByYear = (year, page = 1, limit = 24) =>
-  fetcher(`/nam-phat-hanh/${year}`, { page, limit });
+  fetcher(`/nam/${year}`, { page, limit });
 
 export const MOVIE_TYPE_SLUGS = [
   { slug: 'phim-moi', label: 'Phim Mới' },
